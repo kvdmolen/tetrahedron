@@ -11,12 +11,12 @@ Commands
   scan                  look for drives on IDs 1..31 (at --baud)
   probe                 try ID 1 at every baud/parity combo and show raw bytes (use when scan finds nothing)
   info                  voltage, alarm, position, current setting of --ids
-  bench                 round-trip timing (tells you if 10 Hz x N motors is feasible)
+  bench                 round-trip timing (tells you if 10 Hz x N motors is feasible); --paced: timing without waiting for replies
   current <amps>        set peak current (add --save to store in EEPROM)
   zero                  declare current position as 0
   move <revs>           absolute move, e.g. 'move 1.5' (add --rpm 60)
   sine                  all --ids follow a phase-shifted sine (--amp 1 --freq 0.2 --rate 10 --seconds 20
-                        --lookahead 3 [ticks] --acc 100 [ms per 1000 rpm] --ramp fixed|adaptive)
+                        --lookahead 3 [ticks] --acc 100 [ms per 1000 rpm] --ramp fixed|adaptive --paced)
   estop                 broadcast quick-stop to every drive
   params                show the torque/tension-related drive parameters
   param <addr> [value]  read (or write) one register, e.g. 'param 0x000B' or 'param 0x000B 20000'
@@ -46,7 +46,7 @@ const { values: o, positionals: [cmd, arg, arg2] } = parseArgs({
   allowPositionals: true,
   options: {
     port: { type: 'string', default: DEFAULT_RS485_PORT }, baud: { type: 'string', default: String(DEFAULT_BAUD_RATE) }, ids: { type: 'string', default: '1' },
-    mock: { type: 'boolean', default: false }, rpm: { type: 'string', default: '60' }, save: { type: 'boolean', default: false },
+    mock: { type: 'boolean', default: false }, paced: { type: 'boolean', default: false }, rpm: { type: 'string', default: '60' }, save: { type: 'boolean', default: false },
     amp: { type: 'string', default: '1' }, freq: { type: 'string', default: '0.2' }, rate: { type: 'string', default: '10' },
     seconds: { type: 'string', default: '20' }, current: { type: 'string', default: '0.8' }, pull: { type: 'string', default: '0.15' },
     kp: { type: 'string' }, maxerr: { type: 'string' }, standby: { type: 'string' }, lookahead: { type: 'string', default: '3' }, acc: { type: 'string', default: '100' }, ramp: { type: 'string', default: 'fixed' }, maxrpm: { type: 'string', default: '600' },
@@ -316,6 +316,17 @@ async function main() {
         console.log(`  alarm: ${a.text} | enabled=${st.enabled} fault=${st.fault} running=${st.running}`);
         console.log(`  position (raw, the drive's zero isn't visible here): encoder ${pos.encoderCounts} counts = ${(pos.encoderCounts / 65536).toFixed(3)} rev, commanded ${pos.profileRaw} pulses`);
       }
+    } else if (cmd === 'bench' && o.paced) {
+      // Paced writes: rewrite the peak current with its own value (changes nothing), n times, without waiting for replies.
+      const m = motors[0], n = 200, currentValue = await m.readReg(REG.PEAK_CURRENT);
+      const t = performance.now();
+      for (let i = 0; i < n; i++) await bus.writeSingle(m.id, REG.PEAK_CURRENT, currentValue, { paced: true });
+      const perWriteMs = (performance.now() - t) / n;
+      await m.readReg(REG.PEAK_CURRENT); // waits until every paced reply has arrived or timed out
+      console.log(`${n} paced writes: ${perWriteMs.toFixed(2)} ms each (a streaming move is ~2.5 ms longer: 25 instead of 8 bytes)`);
+      console.log(`replies ok ${bus.stats.pacedReplies}/${n}, missing ${bus.stats.pacedMissing}, errors ${bus.stats.pacedErrors}`);
+      const moveMs = perWriteMs + (17 * bus.characterMs);
+      console.log(`Estimated per tick: 12 motors ~${(moveMs * 12).toFixed(0)} ms, 16 motors ~${(moveMs * 16).toFixed(0)} ms (+ ~30 ms on ticks with a status check)`);
     } else if (cmd === 'bench') {
       const m = motors[0], n = 200, times = [];
       for (let i = 0; i < n; i++) { const t = performance.now(); await m.positions(); times.push(performance.now() - t); }
@@ -344,7 +355,7 @@ async function main() {
       }
       console.log();
     } else if (cmd === 'sine') {
-      const group = new MotorGroup(bus, motors, { rateHz: f('rate'), maxRpm: f('maxrpm'), lookahead: f('lookahead'), accMs: f('acc'), decMs: f('acc'), ramp: o.ramp });
+      const group = new MotorGroup(bus, motors, { rateHz: f('rate'), maxRpm: f('maxrpm'), lookahead: f('lookahead'), accMs: f('acc'), decMs: f('acc'), ramp: o.ramp, pacedWrites: o.paced });
       group.on('overrun', ({ tick, ms }) => console.warn(`tick ${tick} took ${ms.toFixed(0)} ms (> period)`));
       group.on('motorError', ({ motor, error }) => console.warn(`${motor.name}: ${error.message}`));
       group.on('alarm', ({ motor, text }) => console.error(`ALARM ${motor.name}: ${text}`));

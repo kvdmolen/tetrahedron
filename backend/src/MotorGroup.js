@@ -34,13 +34,20 @@ export class MotorGroup extends EventEmitter {
     minRev = -Infinity, // soft limits, revolutions from zero
     maxRev = Infinity,
     statusEvery = 1, //    poll ONE motor's fault flag (round-robin) every N ticks (0 = never)
+    pacedWrites = false, // send moves without waiting for each reply (see ModbusRtuBus): ~3x more motors per tick
     maxConsecutiveErrors = 5,
   } = {}) {
     super();
-    Object.assign(this, { bus, motors, rateHz, minRpm, maxRpm, lookahead, speedGain, accMs, decMs, ramp, maxRampMs, minRev, maxRev, statusEvery, maxConsecutiveErrors });
+    Object.assign(this, { bus, motors, rateHz, minRpm, maxRpm, lookahead, speedGain, accMs, decMs, ramp, maxRampMs, minRev, maxRev, statusEvery, pacedWrites, maxConsecutiveErrors });
+    // replies to paced moves arrive later; report problems against the right motor
+    this._onPacedError = ({ unit, error }) => {
+      const motor = this.motors.find((m) => m.id === unit);
+      if (motor) this.emit('motorError', { motor, error });
+    };
     this.running = false;
     this.lastPulses = motors.map(() => null);
     this.lastSignedRpm = motors.map(() => 0);
+    this.statusCheckCount = 0;
     this.errorCount = motors.map(() => 0);
   }
 
@@ -54,6 +61,7 @@ export class MotorGroup extends EventEmitter {
     }
 
     this.running = true;
+    this.bus.on?.('pacedError', this._onPacedError);
     const t0 = performance.now();
     let next = t0;
     for (let tick = 0; this.running; tick++) {
@@ -62,7 +70,7 @@ export class MotorGroup extends EventEmitter {
       if (t >= seconds) break;
 
       await this._tick(t, dt, targetFn);
-      if (this.statusEvery && tick % this.statusEvery === 0) await this._pollStatus(tick % this.motors.length);
+      if (this.statusEvery && tick % this.statusEvery === 0) await this._pollStatus(this.statusCheckCount++ % this.motors.length); // round-robin over all motors
 
       const ms = performance.now() - tickStart;
       this.emit('tick', { tick, t, ms });
@@ -75,6 +83,7 @@ export class MotorGroup extends EventEmitter {
       }
     }
     this.running = false;
+    this.bus.off?.('pacedError', this._onPacedError);
   }
 
   stop() {
@@ -100,7 +109,7 @@ export class MotorGroup extends EventEmitter {
         const rpm = clamp(Math.ceil((Math.abs(rev - now) * 60 * this.speedGain) / horizon), this.minRpm, this.maxRpm);
         const signedRpm = Math.sign(rev - now) * rpm;
         const { accMs, decMs } = this._rampFor(i, signedRpm, rpm, dt, horizon);
-        await m.moveToPulses(target, { rpm, accMs, decMs });
+        await m.moveToPulses(target, { rpm, accMs, decMs, paced: this.pacedWrites });
         this.lastPulses[i] = target;
         this.lastSignedRpm[i] = signedRpm;
         this.errorCount[i] = 0;

@@ -116,7 +116,7 @@ export class IclRsMotor {
    * streaming work). Do NOT set `interrupt` (INS bit) for that: on this drive INS=1 makes new
    * commands get ignored until the running move has finished. See PR_MODE.INTERRUPT.
    */
-  async moveToPulses(pulses, { rpm = 60, accMs = 100, decMs = 100, pauseMs = 0, relative = false, interrupt = false } = {}) {
+  async moveToPulses(pulses, { rpm = 60, accMs = 100, decMs = 100, pauseMs = 0, relative = false, interrupt = false, paced = false } = {}) {
     const mode = PR_MODE.POSITION | (relative ? PR_MODE.RELATIVE : 0) | (interrupt ? PR_MODE.INTERRUPT : 0);
     const [hi, lo] = splitI32(Math.round(pulses));
     await this.bus.writeMultiple(this.id, REG.PR0_BASE, [
@@ -128,7 +128,7 @@ export class IclRsMotor {
       clamp(Math.round(decMs), 0, 0xffff),
       clamp(Math.round(pauseMs), 0, 0xffff),
       0x0010, // Pr9.07 -> Pr8.02: run PR0 now
-    ]);
+    ], { paced }); // paced: don't wait for the reply (see ModbusRtuBus)
   }
 
   moveToRev(rev, opts) {

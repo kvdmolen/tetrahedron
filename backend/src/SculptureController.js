@@ -231,6 +231,8 @@ export class SculptureController extends EventEmitter {
       lookahead: motion.lookaheadTicks,
       maxRpm: motion.maxRpm,
       ramp: motion.ramp,
+      pacedWrites: motion.pacedWrites,
+      statusEvery: motion.statusEveryTicks,
       accMs: motion.fastestRampMs,
       decMs: motion.fastestRampMs,
     });

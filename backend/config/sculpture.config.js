@@ -37,6 +37,8 @@ export default {
     lookaheadTicks: 3, //    see MotorGroup
     motorDelayMs: 800, //    motors play the model this long after the screen (must be > lookahead time)
     ramp: 'adaptive', //     'adaptive' or 'fixed' acceleration per command
+    pacedWrites: true, //    don't wait ~16 ms for each motor's reply (USB converter delay); ~3x more motors per tick
+    statusEveryTicks: 3, //  check one motor's alarm flag every N ticks (round-robin); each check costs ~30 ms of bus time
     fastestRampMs: 100, //   ms per 1000 rpm
     maxRpm: 300,
     homingRpm: 30, //        speed while winding to the home pose, one motor at a time
