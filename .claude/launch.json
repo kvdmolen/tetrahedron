@@ -1,0 +1,17 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "tetra-mock",
+      "runtimeExecutable": "node",
+      "runtimeArgs": ["backend/src/server.js", "--mock"],
+      "port": 4000
+    },
+    {
+      "name": "tetra-mock-one-motor",
+      "runtimeExecutable": "node",
+      "runtimeArgs": ["backend/src/server.js", "--mock", "--motors", "2", "--http", "4001"],
+      "port": 4001
+    }
+  ]
+}

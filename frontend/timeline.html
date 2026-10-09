@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <meta charset="UTF-8">
+    <title>Timeline</title>
+    <link rel="stylesheet" href="css/normalize.css">
+    <link rel="stylesheet" href="css/switch.css">
+    <link rel="stylesheet" href="css/style.css">
+</head>
+
+<body>
+    <div id="app">
+        <div class="overlay" v-if="false"></div>
+        <div class="modal-container" v-if="false">
+            <div class="modal">
+                <div class="modal-content">
+                    <!-- <div></div> -->
+                    test
+                </div>
+            </div>
+        </div>
+        <div class="row">
+            <div class="timeline" @mousemove="pdragmove" @mouseup="pdragend">
+                <div class="line" :style="{'margin-left': this.time * this.zoom + 'px'}" v-if="time > 0"></div>
+
+                <div class="bar-t">
+                </div>
+
+                <div class="bar-main" @mousemove="fdragmove" @mouseup="fdragend">
+                    <div class="frame" v-for="(frame, frameidx) in frames" :style="{'margin-left': frame.start * zoom + 'px'}" :class="" :ref="'f-' + frameidx">
+                        <div class="frame-handle" @mousedown="fdragstart($event, 'f-' + frameidx)"></div>
+                        <div class="time">{{frame.start}}</div>
+                    </div>
+                </div>
+
+                <div class="bar-sub" v-for="(lineid, lineidx) in inputs">
+                    <div v-if="hasPoint(lineid, frameidx)" class="frame" v-for="(frame, frameidx) in frames" :style="{'margin-left': frame.start * zoom + 'px'}" :class="">
+                        <div :class="['point',{active: pdragid == 'p-'+ lineid + '-' + frameidx}]" :style="{top: 100 - getPoint(lineid, frameidx).value + '%'}" @mousedown="pdragstart($event, 'p-'+ lineid + '-' + frameidx)" :ref="'p-'+ lineid + '-' + frameidx">
+
+                        </div>
+                        <svgt v-if="nextPoint(lineid, frameidx).id" :start="getPoint(lineid, frameidx).value" :end="nextPoint(lineid, frameidx).value" :control1="[36,0]" :control2="[63,100]" :width="(nextFrame(lineid, frameidx).start - frame.start) * zoom" :height="50" />
+                    </div>
+                </div>
+
+            </div>
+        </div>
+
+        <div class="row">
+            <button @click="play=true">Start</button>
+            <button @click="play=false">Pause</button>
+            <button @click="time=0">Reset</button>
+            <button @click="dozoom(1.2)">Zoom +</button>
+            <button @click="dozoom(0.8)">Zoom -</button>
+        </div>
+    </div>
+
+    <script type="text/javascript" src="js/canvas3d.js"></script>
+    <script type="text/javascript" src="vendor/vue.js"></script>
+    <script type="text/javascript" src="vendor/socket.io.min.js"></script>
+    <script type="text/javascript" src="vendor/math.min.js"></script>
+    <script type="text/javascript" src="js/svgt.js"></script>
+    <script type="text/javascript" src="js/script.js"></script>
+
+</body>
+
+</html>

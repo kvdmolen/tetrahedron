@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>KAbel</title>
+</head>
+<body>
+
+<script>
+
+function omwentelingen(position, touwdikte, startRadius) {
+  const n = (Math.sqrt(startRadius**2 + (touwdikte * position) / Math.PI) - startRadius) / touwdikte;
+  // if (eenheid === "rad") return n * 2 * Math.PI;
+  // if (eenheid === "deg") return n * 360;
+  return n; // rotaties
+}
+
+const Kabeldikte = 6 //[m]
+// const Kabellengte = 3 // [m]
+const TrommelRadius = 40 //[m]
+// const pi = Math.PI
+
+// let Omwentelingen // [-] (Let op niet graden maar omwentelingen, anders delen door 360.)
+// let MyPositie = 3 //[m] (tov de 0 naar beneden)
+// let OmwentelingenStart //(nodig voor berekening: theoretisch aantal omwentelingen om vanaf middelpunt tot Trommelstraal te komen).
+// let KabellengteStart //(nodig voor berekening: theoretische kabellengte als je vanaf het middelpunt de kabel gaat oprollen tot Trommelstraal).
+// let OmwentelingenOpgerold //(nodig voor berekening:aantal omwentelingen exclusief 
+
+// OmwentelingenStart = Trommelstraal / Kabeldikte
+// KabellengteStart = pi * Kabeldikte * OmwentelingenStart ^ 2
+// OmwentelingenOpgerold = Math.sqrt((Kabellengte + KabellengteStart) / (pi * Kabeldikte))
+// Omwentelingen = OmwentelingenOpgerold - Math.sqrt((Kabellengte + KabellengteStart - MyPositie) / (pi * Kabeldikte))
+
+// console.log("OmwentelingenStart: ", OmwentelingenStart)
+// console.log("KabellengteStart: ", KabellengteStart)
+// console.log("OmwentelingenOpgerold: ", OmwentelingenOpgerold)
+console.log("1: ", omwentelingen(Math.PI * 100, 6, 50))
+console.log("2: ", omwentelingen(Math.PI * 100 * 2, 6, 50))
+console.log("3: ", omwentelingen(Math.PI * 100 * 3, 6, 50))
+console.log("3m: ", omwentelingen(3000, Kabeldikte, TrommelRadius)*Kabeldikte*2+2*TrommelRadius)
+console.log("omw: ", omwentelingen(3000, Kabeldikte, TrommelRadius))
+
+</script>
+</body>
+</html>

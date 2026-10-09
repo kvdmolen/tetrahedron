@@ -1,0 +1,309 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<title>Tetra</title>
+
+<link rel="stylesheet" href="css/normalize.css">
+<link rel="stylesheet" href="css/switch.css">
+<link rel="stylesheet" href="css/style.css">
+
+<script type="text/javascript" src="js/canvas.js"></script>
+<script type="text/javascript" src="https://unpkg.com/vue@3.5.22/dist/vue.global.js"></script>
+<script type="text/javascript" src="https://cdnjs.cloudflare.com/ajax/libs/mathjs/14.8.1/math.min.js"></script>
+
+</head>
+<body>
+	<div id="app">
+        <canvas id="canvas"></canvas>
+
+        <!-- Motors -->
+        <div class="panel panel-left">
+            <div class="panel-header">
+                <span class="panel-title">MOTORS</span>
+                <span class="connection" :class="{ online: connected }">{{ connected ? (mock ? 'server · simulated' : 'server') : 'no server' }}</span>
+            </div>
+
+            <button class="estop-btn" @click="send('emergencyStop')" title="Space bar">EMERGENCY STOP</button>
+
+            <div class="status-row"><span class="hlabel">state</span><span>{{ server.motorState }}{{ server.homed ? ' · homed' : '' }}</span></div>
+            <div class="status-row" v-if="server.activity"><span class="hlabel"></span><span>{{ server.activity }}</span></div>
+            <div class="status-row" v-if="server.motorState === 'streaming'"><span class="hlabel">late ticks</span><span>{{ server.overrunCount }}</span></div>
+
+            <div class="button-grid">
+                <button class="toggle-btn" v-if="server.motorState === 'disconnected'" @click="send('connectMotors')">Connect</button>
+                <button class="toggle-btn" v-else :disabled="busy" @click="send('disconnectMotors')">Disconnect</button>
+                <button class="toggle-btn" :disabled="server.motorState !== 'idle'" @click="home">Home</button>
+                <button class="toggle-btn" :disabled="server.motorState !== 'idle' || !server.homed" @click="send('startMotors')">Start motors</button>
+                <button class="toggle-btn" :disabled="server.motorState !== 'streaming'" @click="send('stopMotors')">Stop motors</button>
+            </div>
+
+            <div class="message-list">
+                <div v-for="(message, index) in messages" :key="index" :class="message.kind">{{ message.text }}</div>
+            </div>
+
+            <details class="rope-table">
+                <summary>Ropes</summary>
+                <table>
+                    <tr><th>ID</th><th>rope</th><th>free</th><th>wound</th><th>turns</th></tr>
+                    <tr v-for="rope in server.ropes" :key="rope.name" :class="{ disabled: !rope.enabled, limited: rope.limited, tension: rope.isTension }"
+                        :title="(rope.isTension ? 'constant-tension rope' + (rope.tensionCurrentA !== null ? ', ' + rope.tensionCurrentA + ' A' : '') : 'position rope') + (rope.limited ? ', at its length limit' : '')">
+                        <td>{{ rope.motorId }}</td><td>{{ rope.name }}{{ rope.isTension ? ' T' : '' }}</td><td>{{ rope.freeLengthMm }}</td><td>{{ rope.woundLengthMm }}</td><td>{{ rope.revolutions.toFixed(2) }}</td>
+                    </tr>
+                </table>
+                <div class="hint">mm; turns from an empty drum; T = constant tension (hover for current); faded = not connected</div>
+            </details>
+        </div>
+
+        <!-- Shape -->
+        <div class="panel">
+            <div class="panel-header">
+                <span class="panel-title">TETRA</span>
+                <button class="toggle-btn" :class="{ running: server.simulationRunning }" @click="send('setSimulationRunning', { running: !server.simulationRunning })">
+                    {{ server.simulationRunning ? '&#9632; Stop' : '&#9654; Run' }}
+                </button>
+            </div>
+
+            <div class="control-section">
+                <h4>Position</h4>
+                <div class="hslider-row" v-for="axis in ['x', 'y', 'z']" :key="axis">
+                    <span class="hlabel">{{ axis }}</span>
+                    <input type="range" min="-1" max="1" step="0.01" v-model.number="inputs.position[axis]">
+                    <span class="hvalue">{{ inputs.position[axis].toFixed(2) }}</span>
+                </div>
+            </div>
+
+            <div class="control-section">
+                <h4>Size</h4>
+                <div class="hslider-row">
+                    <span class="hlabel">s</span>
+                    <input type="range" min="-1" max="1" step="0.01" v-model.number="inputs.size">
+                    <span class="hvalue">{{ inputs.size.toFixed(2) }}</span>
+                </div>
+            </div>
+
+            <div class="control-section">
+                <h4>Skew</h4>
+                <div class="hslider-row" v-for="(label, key) in skewLabels" :key="key">
+                    <span class="hlabel">{{ label }}</span>
+                    <input type="range" min="-1" max="1" step="0.01" v-model.number="inputs.skew[key]">
+                    <span class="hvalue">{{ inputs.skew[key].toFixed(2) }}</span>
+                </div>
+            </div>
+
+            <div class="control-section">
+                <h4>Timeline</h4>
+                <div class="timeline-actions">
+                    <button class="toggle-btn" @click="saveFrame">+ Save</button>
+                    <button class="toggle-btn" :class="{ running: playing }" @click="togglePlayback">
+                        {{ playing ? '&#9632; Stop' : '&#9654; Play' }}
+                    </button>
+                </div>
+                <div v-for="(frame, idx) in frames" :key="idx"
+                     class="frame-row" :class="{ active: playingIdx === idx }">
+                    <input class="frame-name" type="text" v-model="frame.name">
+                    <input class="frame-duration" type="number" min="0.1" step="0.1" v-model.number="frame.duration">
+                    <span class="frame-duration-unit">s</span>
+                    <button class="frame-delete" @click="deleteFrame(idx)">&times;</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script type="module">
+        // The rope model runs on the server (backend/src/server.js). This page only draws the
+        // state it receives and sends the slider values.
+        import { NODE_REST_POSITIONS, BOX_CORNERS, TETRA_EDGES, CORNER_ROPE_LINES, BOX_EDGES } from '/shared/tetraGeometry.js'
+        import { defaultShapeInputs, SKEW_EDGES } from '/shared/shapeControls.js'
+
+        // Local edits win over server echoes for this long, so sliders don't jump back while dragging.
+        const LOCAL_EDIT_PRIORITY_MS = 500
+        const MAX_MESSAGES = 6
+
+        // Created after Vue has mounted (mounting re-renders #app, which replaces the <canvas>).
+        let canvas = null
+        const darkMQ = window.matchMedia('(prefers-color-scheme: dark)')
+        const themeColors = () => darkMQ.matches ? { rope: '#FFFFFF', box: '#444444' } : { rope: '#111111', box: '#CCCCCC' }
+
+        // Lines: first the moving ones (tetra edges, then corner ropes), then the fixed box.
+        function drawLinesFor(nodes) {
+            return [
+                ...TETRA_EDGES.map(([a, b]) => [nodes[a], nodes[b]]),
+                ...CORNER_ROPE_LINES.map(([nodeIndex, cornerIndex]) => [nodes[nodeIndex], BOX_CORNERS[cornerIndex]]),
+            ]
+        }
+        const movingLineCount = TETRA_EDGES.length + CORNER_ROPE_LINES.length
+
+        function setupCanvas() {
+            canvas = new Canvas('canvas')
+            const colors = themeColors()
+            drawLinesFor(NODE_REST_POSITIONS).forEach(([a, b]) => canvas.lineAdd(a, b, 2, colors.rope))
+            BOX_EDGES.forEach(([a, b]) => canvas.lineAdd(BOX_CORNERS[a], BOX_CORNERS[b], 2, colors.box))
+            window.addEventListener('resize', () => {
+                canvas.cnv.width = canvas.cnv.offsetWidth
+                canvas.cnv.height = canvas.cnv.offsetHeight
+                canvas.update()
+            })
+            darkMQ.addEventListener('change', () => {
+                const c = themeColors()
+                canvas.lines.forEach((line, i) => (line.color = i < movingLineCount ? c.rope : c.box))
+                canvas.update()
+            })
+            canvas.update()
+        }
+
+        const { createApp } = Vue
+        createApp({
+            data() {
+                return {
+                    connected: false,
+                    mock: false,
+                    server: { motorState: 'disconnected', homed: false, activity: '', simulationRunning: true, overrunCount: 0, ropes: [] },
+                    inputs: defaultShapeInputs(),
+                    messages: [],
+                    frames: [],
+                    playing: false,
+                    playingIdx: -1,
+                    playRaf: null,
+                    playStart: 0,
+                    nextFrameId: 1,
+                }
+            },
+            computed: {
+                skewLabels() {
+                    return Object.fromEntries(Object.entries(SKEW_EDGES).map(([key, [a, b]]) => [key, `${a}-${b}`]))
+                },
+                busy() {
+                    return ['connecting', 'homing', 'syncing'].includes(this.server.motorState)
+                },
+            },
+            watch: {
+                inputs: { handler() { this.sendInputsIfChanged() }, deep: true },
+            },
+            mounted() {
+                this.lastSyncedInputsJson = JSON.stringify(this.inputs)
+                this.lastLocalEditMs = 0
+                this.connect()
+                window.addEventListener('keydown', (event) => {
+                    const typing = event.target.matches?.('input[type=text], input[type=number], textarea')
+                    if (event.code === 'Space' && !typing) {
+                        event.preventDefault()
+                        this.send('emergencyStop')
+                    }
+                })
+            },
+            methods: {
+                // ---- server connection ----
+                connect() {
+                    const socket = new WebSocket(`ws://${location.host}/ws`)
+                    this.socket = socket
+                    socket.onopen = () => {
+                        this.connected = true
+                        this.lastLocalEditMs = 0 // take over the server's current inputs
+                    }
+                    socket.onclose = () => {
+                        this.connected = false
+                        setTimeout(() => this.connect(), 1000)
+                    }
+                    socket.onmessage = (event) => this.onServerMessage(JSON.parse(event.data))
+                },
+                send(type, data = {}) {
+                    if (this.socket?.readyState === WebSocket.OPEN) this.socket.send(JSON.stringify({ type, ...data }))
+                    else this.addMessage('error', 'Not connected to the server')
+                },
+                onServerMessage(message) {
+                    if (message.type === 'hello') this.mock = message.mock
+                    else if (message.type === 'state') this.applyServerState(message)
+                    else if (message.type === 'log') this.addMessage('log', message.text)
+                    else if (message.type === 'error') this.addMessage('error', message.message)
+                },
+                applyServerState(state) {
+                    this.server = state
+                    if (canvas) {
+                        drawLinesFor(state.nodes).forEach(([a, b], lineIndex) => canvas.lineUpdate(lineIndex, a, b))
+                        canvas.update()
+                    }
+                    // adopt inputs changed elsewhere (other screen, homing) unless the user is editing here
+                    const serverInputsJson = JSON.stringify(state.inputs)
+                    if (serverInputsJson !== this.lastSyncedInputsJson && performance.now() - this.lastLocalEditMs > LOCAL_EDIT_PRIORITY_MS) {
+                        this.lastSyncedInputsJson = serverInputsJson
+                        this.inputs = state.inputs
+                    }
+                },
+                sendInputsIfChanged() {
+                    const inputsJson = JSON.stringify(this.inputs)
+                    if (inputsJson === this.lastSyncedInputsJson) return
+                    this.lastSyncedInputsJson = inputsJson
+                    this.lastLocalEditMs = performance.now()
+                    this.send('setInputs', { inputs: this.inputs })
+                },
+                addMessage(kind, text) {
+                    this.messages.unshift({ kind, text })
+                    this.messages.splice(MAX_MESSAGES)
+                },
+                home() {
+                    const ok = confirm('Homing sets every motor\'s zero to "drum empty".\n\nIs ALL rope off ALL pulleys (ropes fully extended)?')
+                    if (ok) this.send('home', { confirmDrumsEmpty: true })
+                },
+
+                // ---- timeline (plays locally by moving the sliders) ----
+                saveFrame() {
+                    this.frames.push({ name: 'Frame ' + this.nextFrameId++, duration: 5, inputs: structuredClone(Vue.toRaw(this.inputs)) })
+                },
+                loadFrame(idx) {
+                    this.inputs = structuredClone(Vue.toRaw(this.frames[idx].inputs))
+                },
+                lerpFrames(a, b, t) {
+                    const lerp = (from, to) => from + (to - from) * t
+                    for (const axis of ['x', 'y', 'z']) this.inputs.position[axis] = lerp(a.inputs.position[axis], b.inputs.position[axis])
+                    this.inputs.size = lerp(a.inputs.size, b.inputs.size)
+                    for (const key in a.inputs.skew) this.inputs.skew[key] = lerp(a.inputs.skew[key], b.inputs.skew[key])
+                },
+                deleteFrame(idx) {
+                    if (this.playing && this.playingIdx === idx) this.stopPlayback()
+                    else if (this.playing && this.playingIdx > idx) this.playingIdx--
+                    this.frames.splice(idx, 1)
+                },
+                playFrames() {
+                    if (this.frames.length < 2) {
+                        if (this.frames.length === 1) this.loadFrame(0)
+                        return
+                    }
+                    this.playing = true
+                    this.playingIdx = 0
+                    this.playStart = performance.now()
+                    const tick = (now) => {
+                        if (!this.playing) return
+                        let elapsed = (now - this.playStart) / 1000
+                        let duration = this.frames[this.playingIdx].duration
+                        if (elapsed >= duration) {
+                            this.playingIdx++
+                            if (this.playingIdx >= this.frames.length - 1) {
+                                this.loadFrame(this.frames.length - 1)
+                                this.stopPlayback()
+                                return
+                            }
+                            this.playStart = now
+                            elapsed = 0
+                            duration = this.frames[this.playingIdx].duration
+                        }
+                        this.lerpFrames(this.frames[this.playingIdx], this.frames[this.playingIdx + 1], Math.min(elapsed / duration, 1))
+                        this.playRaf = requestAnimationFrame(tick)
+                    }
+                    this.playRaf = requestAnimationFrame(tick)
+                },
+                stopPlayback() {
+                    if (this.playRaf) cancelAnimationFrame(this.playRaf)
+                    this.playRaf = null
+                    this.playing = false
+                    this.playingIdx = -1
+                },
+                togglePlayback() {
+                    this.playing ? this.stopPlayback() : this.playFrames()
+                },
+            },
+        }).mount('#app')
+        setupCanvas()
+    </script>
+  </body>
+</html>
