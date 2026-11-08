@@ -13,6 +13,7 @@
 
 export const IHSV = {
   ERROR_CODE: 0x1001, //        RO  internal error
+  ALARM_CODE: 0x603f, //        RO  CiA402 error code (see describeAlarm)
   WATCHDOG_TIME: 0x100c, //     RW  if non-zero: drive stops when 0x6039 isn't read within this time
   WATCHDOG_FACTOR: 0x100d, //   RW
   FORMAT_32BIT: 0x6000, //      RW  0 = high word first
@@ -46,6 +47,28 @@ export const IHSV_CONTROL = {
 };
 
 export const IHSV_RATED_TORQUE_NM = 0.44;
+
+// Alarm list, manual table 19 (p.38-39). The drive shows them as AL.xxx.
+export const IHSV_ALARMS = {
+  51: 'EEPROM parameter error', 62: 'parameter storage error', 63: 'over-current', 100: 'parameter combination error',
+  105: 'electronic gear setting error', 110: 'power-cycle needed after a parameter change', 120: 'servo-on command invalid',
+  401: 'under-voltage', 402: 'over-voltage', 410: 'overload (instantaneous maximum load)', 411: 'drive overload',
+  412: 'motor overload (continuous maximum load)', 420: 'overspeed', 421: 'runaway detected', 422: 'runaway (flying) fault',
+  440: 'heatsink over-temperature', 441: 'motor over-temperature', 501: 'position error too large',
+  550: 'inertia identification failed', 551: 'homing timeout', 552: 'angle identification failed',
+  610: 'encoder disconnected', 611: 'encoder Z signal lost',
+  900: 'WARNING position error too large', 901: 'WARNING position error too large at servo-on', 910: 'WARNING motor overload',
+  912: 'WARNING drive overload', 941: 'WARNING power-cycle needed for a parameter change', 942: 'WARNING EEPROM written too often',
+  943: 'WARNING serial communication error', 971: 'WARNING under-voltage',
+};
+
+/** Alarm code -> text. The drive's exact encoding isn't documented: try the value as AL number, decimal and hex digits. */
+export function describeAlarm(code) {
+  if (!code) return 'no alarm';
+  const asHexDigits = Number(code.toString(16)); // e.g. 0x0501 -> 501
+  const text = IHSV_ALARMS[code] ?? IHSV_ALARMS[asHexDigits] ?? IHSV_ALARMS[code & 0x0fff];
+  return `code ${code} (0x${code.toString(16)})${text ? ` = AL.${IHSV_ALARMS[code] ? code : asHexDigits}: ${text}` : ' (unknown, see manual table 19)'}`;
+}
 
 export function describeStatusWord(status) {
   const flags = [];

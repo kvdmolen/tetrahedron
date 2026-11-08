@@ -2,6 +2,8 @@
 import { parseArgs } from 'node:util';
 import { ModbusRtuBus, IclRsMotor, MotorGroup, MockPort, BAUD_CODES, REG, PR_CMD } from '../src/index.js';
 import { listSerialPorts, findRs485Port, DEFAULT_RS485_PORT, DEFAULT_BAUD_RATE } from '../src/serialPorts.js';
+import config from '../config/sculpture.config.js';
+import { ROPES } from '../../shared/tetra.js';
 
 const HELP = `iCL-RS test tool
 Usage: node bin/cli.js <command> [options]
@@ -15,6 +17,8 @@ Commands
   current <amps>        set peak current (add --save to store in EEPROM)
   zero                  declare current position as 0
   move <revs>           absolute move, e.g. 'move 1.5' (add --rpm 60)
+  take <turns>          wind rope IN by this many drum turns, each motor its own way (windRotation in the config)
+  give <turns>          let rope OUT; e.g. 'take 0.5 --ids 2,3 --rpm 30'. Prints which way each shaft should turn.
   sine                  all --ids follow a phase-shifted sine (--amp 1 --freq 0.2 --rate 10 --seconds 20
                         --lookahead 3 [ticks] --acc 100 [ms per 1000 rpm] --ramp fixed|adaptive --paced)
   estop                 broadcast quick-stop to every drive
@@ -269,6 +273,50 @@ Starting in 3 s (Ctrl-C to abort)...`);
   await relaxAndRestore();
 }
 
+/**
+ * Relative move of each motor's drum in its own wind direction from the config: 'take' winds rope in,
+ * 'give' lets it out. Prints the shaft rotation to expect, so you can check windRotation, the wiring and
+ * motor.positiveRotation in one go: if a shaft turns the other way, positiveRotation is wrong (all motors)
+ * or that motor's windRotation is (one motor).
+ */
+async function takeOrGive(motors, command, turns) {
+  if (!(turns > 0)) throw new Error(`Usage: ${command} <turns>, e.g. '${command} 0.5 --ids 2' (turns of the drum, > 0)`);
+  const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+  const other = (rotation) => (rotation === 'cw' ? 'ccw' : 'cw');
+  const plans = motors.map((motor) => {
+    const drive = config.drives.find((entry) => entry.motorId === motor.id);
+    if (!drive) throw new Error(`Motor ${motor.id} is not in config.drives`);
+    const wind = drive.windRotation === config.motor.positiveRotation ? 1 : -1; // +1: winding counts positions up
+    const sign = command === 'take' ? wind : -wind;
+    const shaft = command === 'take' ? drive.windRotation : other(drive.windRotation);
+    return { motor, name: ROPES[drive.ropeIndex].name, sign, shaft, start: 0 };
+  });
+  for (const plan of plans) {
+    plan.start = (await plan.motor.positions()).feedback;
+    console.log(`motor ${String(plan.motor.id).padStart(2)} ${plan.name.padEnd(5)} ${command === 'take' ? 'takes' : 'gives'} ${turns} turn(s): shaft should turn ${plan.shaft.toUpperCase()} (facing the shaft)`);
+    await plan.motor.moveToPulses(plan.sign * turns * plan.motor.pulsesPerRev, { relative: true, rpm: f('rpm') });
+  }
+  const last = new Map();
+  for (let i = 0; i < 600; i++) {
+    await sleep(150);
+    let moving = false;
+    const report = [];
+    for (const plan of plans) {
+      const { profile, feedback } = await plan.motor.positions();
+      if (i < 3 || profile !== last.get(plan.motor.id)) moving = true;
+      last.set(plan.motor.id, profile);
+      report.push(`${plan.motor.id}: ${((plan.sign * (feedback - plan.start)) / plan.motor.pulsesPerRev).toFixed(2)}`);
+    }
+    process.stdout.write(`\r${command === 'take' ? 'taken' : 'given'} (turns) ${report.join('  ')}   `);
+    if (!moving) break;
+  }
+  console.log();
+  for (const plan of plans) {
+    const alarm = await plan.motor.alarm();
+    if (alarm.mask) console.log(`motor ${plan.motor.id}: ALARM ${alarm.text}`);
+  }
+}
+
 async function main() {
   if (!cmd || cmd === 'help') return console.log(HELP);
   if (cmd === 'ports') {
@@ -354,6 +402,8 @@ async function main() {
         last = p.profile;
       }
       console.log();
+    } else if (cmd === 'take' || cmd === 'give') {
+      await takeOrGive(motors, cmd, Number(arg));
     } else if (cmd === 'sine') {
       const group = new MotorGroup(bus, motors, { rateHz: f('rate'), maxRpm: f('maxrpm'), lookahead: f('lookahead'), accMs: f('acc'), decMs: f('acc'), ramp: o.ramp, pacedWrites: o.paced });
       group.on('overrun', ({ tick, ms }) => console.warn(`tick ${tick} took ${ms.toFixed(0)} ms (> period)`));

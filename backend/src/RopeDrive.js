@@ -1,14 +1,20 @@
-import { revolutionsForWoundLength } from '../../shared/winding.js';
+import { revolutionsForWoundLength, woundLengthForRevolutions } from '../../shared/winding.js';
 
 /**
  * Converts one rope's free length (from the model) into its motor's shaft position.
  *
- * Reference: motor position 0 = drum EMPTY (all rope off the pulley, free length = ropeLengthMm).
- * Then rope on the drum = ropeLengthMm - freeLength, and the pulley formula gives the turns.
+ * The model gives the free length: from the exit point at the corner to the rope's end. Motor position 0 =
+ * drum EMPTY (free length = ropeLengthMm); then rope on the drum = ropeLengthMm - freeLength, and the pulley
+ * formula gives the turns. Winding turns the shaft `windRotation` ('cw' / 'ccw', seen facing the shaft); the
+ * drive counts positions up in `positiveRotation`, so windDirection is +1 or -1 to match.
  */
 export class RopeDrive {
-  constructor({ rope, motorId, windDirection = 1, ropeLengthMm, minFreeLengthMm = 0, enabled = true }, { ropeThicknessMm, coreRadiusMm }) {
+  constructor({ rope, motorId, windRotation, positiveRotation, ropeLengthMm, minFreeLengthMm = 0, enabled = true }, { ropeThicknessMm, coreRadiusMm }) {
     if (!(ropeLengthMm > minFreeLengthMm)) throw new Error(`Rope ${rope.name}: ropeLengthMm must be > minFreeLengthMm`);
+    for (const rotation of [windRotation, positiveRotation]) {
+      if (rotation !== 'cw' && rotation !== 'ccw') throw new Error(`Rope ${rope.name}: rotation must be 'cw' or 'ccw', not ${JSON.stringify(rotation)}`);
+    }
+    const windDirection = windRotation === positiveRotation ? 1 : -1; // +1: winding counts positions up
     Object.assign(this, { rope, motorId, windDirection, ropeLengthMm, minFreeLengthMm, enabled, ropeThicknessMm, coreRadiusMm });
     this.motor = null; // IclRsMotor, once connected
   }
@@ -33,11 +39,19 @@ export class RopeDrive {
     return Math.round(Math.min(maxCurrentA, amps) * 10) / 10;
   }
 
-  /** { revolutions, woundLengthMm, limited } for a wanted free length. */
+  /** Motor position (turns from the empty drum, signed) for a free length, without limits. */
+  revolutionsForFreeLength(freeLengthMm) {
+    return this.windDirection * revolutionsForWoundLength(this.ropeLengthMm - freeLengthMm, this.ropeThicknessMm, this.coreRadiusMm);
+  }
+
+  /** Free length for a motor position (turns from the empty drum, signed): the inverse of the above. */
+  freeLengthForRevolutions(revolutions) {
+    return this.ropeLengthMm - woundLengthForRevolutions(Math.max(0, this.windDirection * revolutions), this.ropeThicknessMm, this.coreRadiusMm);
+  }
+
+  /** { revolutions, woundLengthMm, limited } for a wanted free length, kept within minFreeLengthMm..ropeLengthMm. */
   motorTargetForFreeLength(freeLengthMm) {
     const limitedFreeLength = Math.min(this.ropeLengthMm, Math.max(this.minFreeLengthMm, freeLengthMm));
-    const woundLengthMm = this.ropeLengthMm - limitedFreeLength;
-    const revolutions = this.windDirection * revolutionsForWoundLength(woundLengthMm, this.ropeThicknessMm, this.coreRadiusMm);
-    return { revolutions, woundLengthMm, limited: limitedFreeLength !== freeLengthMm };
+    return { revolutions: this.revolutionsForFreeLength(limitedFreeLength), woundLengthMm: this.ropeLengthMm - limitedFreeLength, limited: limitedFreeLength !== freeLengthMm };
   }
 }

@@ -1,0 +1,81 @@
+{
+  "duration": 2.05,
+  "keyframes": [
+    {
+      "time": 0,
+      "values": {
+        "A": 0,
+        "B": 0,
+        "C": 0,
+        "D": 0,
+        "AB": 0,
+        "AC": 0,
+        "AD": 0,
+        "BC": 0,
+        "BD": 0,
+        "CD": 0,
+        "size": 0
+      }
+    },
+    {
+      "time": 0.5,
+      "values": {
+        "size": 0.079
+      }
+    },
+    {
+      "time": 0.6,
+      "values": {
+        "size": 0.391
+      }
+    },
+    {
+      "time": 0.7,
+      "values": {
+        "size": -0.035
+      }
+    },
+    {
+      "time": 1,
+      "values": {
+        "size": 0.184
+      }
+    },
+    {
+      "time": 1.1,
+      "values": {
+        "size": 0.624
+      }
+    },
+    {
+      "time": 1.2,
+      "values": {
+        "size": 0.034
+      }
+    },
+    {
+      "time": 2,
+      "values": {
+        "size": -0.061
+      }
+    },
+    {
+      "time": 2.05,
+      "values": {
+        "A": 0,
+        "B": 0,
+        "C": 0,
+        "D": 0,
+        "AB": 0,
+        "AC": 0,
+        "AD": 0,
+        "BC": 0,
+        "BD": 0,
+        "CD": 0,
+        "size": 0
+      }
+    }
+  ],
+  "loop": true,
+  "speed": 1.778
+}

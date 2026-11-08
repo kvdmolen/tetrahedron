@@ -5,17 +5,25 @@ const i32 = (hi, lo) => ((hi << 16) | lo) | 0;
 
 /** Simulated RS485 line with fake iCL-RS drives, so you can develop without hardware. */
 export class MockPort extends EventEmitter {
-  constructor({ ids = [1], latencyMs = 3, ppr = 10000 } = {}) {
+  /**
+   * endStops: { [id]: { min, max } } in pulses: the shaft can't turn past these (a rope's end at its exit);
+   * the commanded position goes on, so the shaft lags it, like a real drive stalling at its current limit.
+   */
+  constructor({ ids = [1], latencyMs = 3, ppr = 10000, endStops = {} } = {}) {
     super();
     this.latencyMs = latencyMs;
-    this.slaves = new Map(ids.map((id) => [id, { id, regs: new Map([[0x01bf, id]]), pos: 0, target: 0, zero: 0, rpm: 0, ppr, t: performance.now() }]));
+    const registers = (id) => new Map([[0x01bf, id], [0x0191, 40], [0x000b, 4000]]); // ID, 4.0 A peak current, factory Pr0.05
+    this.slaves = new Map(ids.map((id) => [id, { id, regs: registers(id), pos: 0, target: 0, zero: 0, rpm: 0, ppr, stop: endStops[id] ?? {}, t: performance.now() }]));
   }
 
   write(buf, cb) {
     cb?.();
     setTimeout(() => this._handle(Buffer.from(buf)), 0);
   }
-  close(cb) { cb?.(); }
+  close(cb) {
+    this.removeAllListeners('data'); // a closed bus stops listening; the drives (and their positions) stay
+    cb?.();
+  }
 
   _advance(s) {
     const now = performance.now();
@@ -37,7 +45,8 @@ export class MockPort extends EventEmitter {
       // commanded (profile) position ramps like the real drive's planner; with no load the shaft follows it exactly
       case 0x1012: return (p >> 16) & 0xffff; case 0x1013: return p & 0xffff;
       case 0x1014: case 0x1015: { // encoder counts, 65536/rev, like the real drive
-        const c = Math.round((s.pos * 65536) / s.ppr);
+        const shaft = Math.min(s.stop.max ?? Infinity, Math.max(s.stop.min ?? -Infinity, s.pos));
+        const c = Math.round((shaft * 65536) / s.ppr);
         return a === 0x1014 ? (c >> 16) & 0xffff : c & 0xffff;
       }
       default: return s.regs.get(a) ?? 0;

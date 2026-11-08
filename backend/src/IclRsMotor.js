@@ -19,6 +19,9 @@ export class IclRsMotor {
     // remember the raw commanded position at the moment of zeroing and subtract it ourselves.
     // Only known if setZero() ran in this process; otherwise readings are raw.
     this.zeroPulses = 0;
+    // Our own position on top of that: position = drive position + offsetPulses. Set by definePosition()
+    // (homing: "the shaft is at X now"). positions() and absolute moves use this position.
+    this.offsetPulses = 0;
   }
 
   // --- reads ---------------------------------------------------------------
@@ -60,14 +63,15 @@ export class IclRsMotor {
 
   /**
    * Commanded (profile) and encoder feedback positions in pulses, relative to the last setZero()
-   * in this process, plus the raw register values. One 6-register read.
+   * in this process (and shifted by definePosition()), plus the raw register values. One 6-register read.
    */
   async positions() {
     const r = await this.bus.readHolding(this.id, REG.FOLLOW_ERR_HI, 6);
     const profileRaw = toI32(r[2], r[3]), encoderCounts = toI32(r[4], r[5]);
+    const offset = this.offsetPulses - this.zeroPulses;
     return {
-      profile: profileRaw - this.zeroPulses,
-      feedback: Math.round((encoderCounts * this.pulsesPerRev) / ENCODER_COUNTS_PER_REV) - this.zeroPulses,
+      profile: profileRaw + offset,
+      feedback: Math.round((encoderCounts * this.pulsesPerRev) / ENCODER_COUNTS_PER_REV) + offset,
       followingError: toI32(r[0], r[1]), // raw register, units unverified
       profileRaw,
       encoderCounts,
@@ -75,6 +79,10 @@ export class IclRsMotor {
   }
 
   // --- configuration ---------------------------------------------------------
+  async writeReg(addr, value) {
+    await this.bus.writeSingle(this.id, addr, value);
+  }
+
   async setPeakCurrent(amps) {
     await this.bus.writeSingle(this.id, REG.PEAK_CURRENT, Math.round(amps * 10));
   }
@@ -103,6 +111,13 @@ export class IclRsMotor {
     await this.bus.writeSingle(this.id, REG.PR_CONTROL, PR_CMD.SET_ZERO);
     const r = await this.bus.readHolding(this.id, REG.PROFILE_POS_HI, 2);
     this.zeroPulses = toI32(r[0], r[1]);
+    this.offsetPulses = 0;
+  }
+
+  /** Declare where the shaft is now: from here on, positions() and absolute moves count from that. */
+  async definePosition(pulses) {
+    const { feedback } = await this.positions();
+    this.offsetPulses += Math.round(pulses) - feedback;
   }
 
   async quickStop() {
@@ -118,7 +133,7 @@ export class IclRsMotor {
    */
   async moveToPulses(pulses, { rpm = 60, accMs = 100, decMs = 100, pauseMs = 0, relative = false, interrupt = false, paced = false } = {}) {
     const mode = PR_MODE.POSITION | (relative ? PR_MODE.RELATIVE : 0) | (interrupt ? PR_MODE.INTERRUPT : 0);
-    const [hi, lo] = splitI32(Math.round(pulses));
+    const [hi, lo] = splitI32(Math.round(relative ? pulses : pulses - this.offsetPulses));
     await this.bus.writeMultiple(this.id, REG.PR0_BASE, [
       mode,
       hi,

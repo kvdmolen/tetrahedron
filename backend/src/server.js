@@ -3,52 +3,62 @@
 //
 //   node src/server.js            real motors (when you press Connect in the screen)
 //   node src/server.js --mock     simulated motors
-//   then open http://localhost:4000
+//   then open http://localhost:4000 (serves the built frontend: run `npm run build` in frontend/ first)
+//   During frontend development, run `npm run dev` in frontend/ instead and open the address it prints.
 import http from 'node:http';
-import { readFile } from 'node:fs/promises';
-import { extname, join, normalize, sep } from 'node:path';
+import { readFile, stat } from 'node:fs/promises';
+import { extname, join, normalize } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parseArgs } from 'node:util';
 import { WebSocketServer } from 'ws';
 import config from '../config/sculpture.config.js';
 import { SculptureController } from './SculptureController.js';
-import * as geometry from '../../shared/tetraGeometry.js';
+import { TimelineStore } from './TimelineStore.js';
+import { handleTimelineRequest } from './timelineApi.js';
+import { ROPES } from '../../shared/tetra.js';
 
-const geometryRopeName = (ropeIndex) => `${geometry.ROPES[ropeIndex].name}${geometry.ROPES[ropeIndex].isDirect ? ' (tension)' : ''}`;
+const ropeName = (ropeIndex) => `${ROPES[ropeIndex].name}${ROPES[ropeIndex].isDirect ? ' (tension)' : ''}`;
 
-const { values: options } = parseArgs({ options: { mock: { type: 'boolean', default: false }, port: { type: 'string' }, http: { type: 'string' }, motors: { type: 'string' } } });
+const { values: options } = parseArgs({ options: { mock: { type: 'boolean', default: false }, port: { type: 'string' }, http: { type: 'string' }, motors: { type: 'string' }, timelines: { type: 'string' } } });
 if (options.port) config.serial.path = options.port;
 // --motors 2,6  -> drive only these motor IDs (e.g. a dry run with one connected motor)
 if (options.motors) {
   const motorIds = options.motors.split(',').map(Number);
   config.drives.forEach((drive) => (drive.enabled = motorIds.includes(drive.motorId)));
-  const enabled = config.drives.filter((drive) => drive.enabled).map((drive) => `ID ${drive.motorId} = rope ${geometryRopeName(drive.ropeIndex)}`);
+  const enabled = config.drives.filter((drive) => drive.enabled).map((drive) => `ID ${drive.motorId} = rope ${ropeName(drive.ropeIndex)}`);
   console.log(`Only driving: ${enabled.join(', ') || 'NONE (no motor has those IDs)'}`);
 }
 const httpPort = Number(options.http ?? config.server.httpPort);
 const STATE_BROADCAST_MS = 40; // 25 updates per second to the screen
 
-const projectRoot = fileURLToPath(new URL('../../', import.meta.url));
-const staticRoots = { '/shared/': join(projectRoot, 'shared'), '/': join(projectRoot, 'frontend') };
-const contentTypes = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css', '.json': 'application/json', '.svg': 'image/svg+xml', '.png': 'image/png' };
+const frontendBuild = fileURLToPath(new URL('../../frontend/dist', import.meta.url));
+const contentTypes = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css', '.json': 'application/json', '.svg': 'image/svg+xml', '.png': 'image/png', '.woff2': 'font/woff2' };
 
 const controller = new SculptureController(config, { mock: options.mock });
 controller.startSimulation();
+const timelineStore = new TimelineStore(options.timelines ?? config.timelinesDirectory);
 
-// ---- static files ---------------------------------------------------------------------------
-const httpServer = http.createServer(async (request, response) => {
-  const urlPath = decodeURIComponent(new URL(request.url, 'http://localhost').pathname);
-  const [prefix, root] = Object.entries(staticRoots).find(([prefix]) => urlPath.startsWith(prefix));
-  const relativePath = urlPath.slice(prefix.length) || 'index.html';
-  const filePath = normalize(join(root, relativePath));
-  if (!filePath.startsWith(root + sep) && filePath !== root) return response.writeHead(403).end();
+// ---- http: the timeline API and the built frontend ------------------------------------------
+async function handleHttpRequest(request, response) {
+  const { pathname } = new URL(request.url, 'http://localhost');
+  if (pathname.startsWith('/api/')) return handleTimelineRequest(timelineStore, request, response);
+  const urlPath = decodeURIComponent(pathname);
+  let filePath = normalize(join(frontendBuild, urlPath));
+  if (!filePath.startsWith(frontendBuild)) return response.writeHead(403).end();
+  if (!(await stat(filePath).catch(() => null))?.isFile()) filePath = join(frontendBuild, 'index.html');
   try {
     const body = await readFile(filePath);
     response.writeHead(200, { 'Content-Type': contentTypes[extname(filePath)] ?? 'application/octet-stream', 'Cache-Control': 'no-cache' });
     response.end(body);
   } catch {
-    response.writeHead(404).end('Not found');
+    response.writeHead(404, { 'Content-Type': 'text/plain' }).end('Frontend not built yet: run `npm run build` in the frontend folder.');
   }
+}
+
+const httpServer = http.createServer((request, response) => {
+  handleHttpRequest(request, response).catch(() => {
+    if (!response.headersSent) response.writeHead(400).end(); // e.g. a malformed URL
+  });
 });
 
 // ---- websocket ------------------------------------------------------------------------------
@@ -60,21 +70,22 @@ const broadcast = (message) => webSocketServer.clients.forEach((socket) => send(
 const commands = {
   setInputs: ({ inputs }) => controller.setInputs(inputs),
   setSimulationRunning: ({ running }) => controller.setSimulationRunning(running),
+  resetModel: () => controller.resetModel(),
   connectMotors: () => controller.connectMotors(),
   disconnectMotors: () => controller.disconnectMotors(),
-  home: ({ confirmDrumsEmpty }) => controller.home({ confirmDrumsEmpty }),
+  home: async () => {
+    await controller.home();
+    await controller.startStreaming(); // homed: the transition takes the motors to the simulation
+  },
+  homingAction: ({ action, mm }) => controller.homingAction(action, mm),
+  homeHere: () => controller.homeHere(),
   startMotors: () => controller.startStreaming(),
   stopMotors: () => controller.stopStreaming(),
   emergencyStop: () => controller.emergencyStop(),
 };
 
 webSocketServer.on('connection', (socket) => {
-  send(socket, {
-    type: 'hello',
-    mock: options.mock,
-    geometry: { nodeRestPositions: geometry.NODE_REST_POSITIONS, boxCorners: geometry.BOX_CORNERS, tetraEdges: geometry.TETRA_EDGES, cornerRopeLines: geometry.CORNER_ROPE_LINES, boxEdges: geometry.BOX_EDGES },
-    motion: config.motion,
-  });
+  send(socket, { type: 'hello', mock: options.mock });
   socket.on('message', async (data) => {
     let message;
     try {

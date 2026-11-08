@@ -54,15 +54,18 @@ export class MotorGroup extends EventEmitter {
   async start(targetFn, { seconds = Infinity } = {}) {
     const dt = 1 / this.rateHz;
     const periodMs = 1000 * dt;
+    this.stopRequested = false;
 
     // Start from where each motor actually is.
     for (let i = 0; i < this.motors.length; i++) {
       this.lastPulses[i] = (await this.motors[i].positions()).profile;
     }
 
+    if (this.stopRequested) return; // stopped while starting up
     this.running = true;
     this.bus.on?.('pacedError', this._onPacedError);
     const t0 = performance.now();
+    this.t0 = t0;
     let next = t0;
     for (let tick = 0; this.running; tick++) {
       const tickStart = performance.now();
@@ -88,11 +91,13 @@ export class MotorGroup extends EventEmitter {
 
   stop() {
     this.running = false;
+    this.stopRequested = true;
   }
 
   /** One broadcast frame: every drive on the bus quick-stops. */
   emergencyStop() {
     this.running = false;
+    this.stopRequested = true;
     return this.bus.broadcastWrite(REG.PR_CONTROL, PR_CMD.QUICK_STOP);
   }
 
@@ -101,8 +106,11 @@ export class MotorGroup extends EventEmitter {
     for (let i = 0; i < this.motors.length && this.running; i++) {
       const m = this.motors[i];
       try {
-        const now = clamp(targetFn(t, i), this.minRev, this.maxRev);
-        const rev = clamp(targetFn(t + horizon, i), this.minRev, this.maxRev);
+        // the moment THIS command goes out: the motors are sent one after another, and a target for the tick's
+        // start would leave each next motor a few ms further behind (ropes out of step, more so when fast)
+        const sendTime = Math.max(t, (performance.now() - this.t0) / 1000);
+        const now = clamp(targetFn(sendTime, i), this.minRev, this.maxRev);
+        const rev = clamp(targetFn(sendTime + horizon, i), this.minRev, this.maxRev);
         const target = Math.round(rev * m.pulsesPerRev);
         if (target === this.lastPulses[i]) continue;
         // average speed over the look-ahead window (revs -> rpm)

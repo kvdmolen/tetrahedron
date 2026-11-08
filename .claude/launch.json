@@ -4,14 +4,33 @@
     {
       "name": "tetra-mock",
       "runtimeExecutable": "node",
-      "runtimeArgs": ["backend/src/server.js", "--mock"],
+      "runtimeArgs": [
+        "backend/src/server.js",
+        "--mock"
+      ],
       "port": 4000
     },
     {
-      "name": "tetra-mock-one-motor",
+      "name": "tetra-frontend-dev",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": [
+        "--prefix",
+        "frontend",
+        "run",
+        "dev"
+      ],
+      "port": 5173
+    },
+    {
+      "name": "tetra-mock-alt-port",
       "runtimeExecutable": "node",
-      "runtimeArgs": ["backend/src/server.js", "--mock", "--motors", "2", "--http", "4001"],
-      "port": 4001
+      "runtimeArgs": [
+        "backend/src/server.js",
+        "--mock",
+        "--http",
+        "4100"
+      ],
+      "port": 4100
     }
   ]
 }

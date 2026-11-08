@@ -1,0 +1,313 @@
+{
+  "duration": 80,
+  "keyframes": [
+    {
+      "time": 0,
+      "values": {
+        "size": 0,
+        "C": 0,
+        "D": 0,
+        "A": 0,
+        "B": 0,
+        "AB": 0,
+        "CD": 0,
+        "AC": 0,
+        "BD": 0,
+        "AD": 0,
+        "BC": 0
+      }
+    },
+    {
+      "time": 4,
+      "values": {
+        "C": -0.2
+      }
+    },
+    {
+      "time": 4.5,
+      "values": {
+        "D": -0.2
+      }
+    },
+    {
+      "time": 6,
+      "values": {
+        "size": -0.4
+      }
+    },
+    {
+      "time": 8.5,
+      "values": {
+        "size": -0.45
+      }
+    },
+    {
+      "time": 11,
+      "values": {
+        "C": 0
+      }
+    },
+    {
+      "time": 11.5,
+      "values": {
+        "D": 0
+      }
+    },
+    {
+      "time": 16,
+      "values": {
+        "size": 0.2
+      }
+    },
+    {
+      "time": 20.5,
+      "values": {
+        "size": -0.22
+      }
+    },
+    {
+      "time": 24,
+      "values": {
+        "size": 0.3
+      }
+    },
+    {
+      "time": 28.5,
+      "values": {
+        "size": -0.22
+      }
+    },
+    {
+      "time": 31,
+      "values": {
+        "A": 0
+      }
+    },
+    {
+      "time": 32,
+      "values": {
+        "size": 0.1
+      }
+    },
+    {
+      "time": 34,
+      "values": {
+        "C": 0,
+        "A": 0.35
+      }
+    },
+    {
+      "time": 35,
+      "values": {
+        "size": 0
+      }
+    },
+    {
+      "time": 37,
+      "values": {
+        "C": 0.35,
+        "B": 0
+      }
+    },
+    {
+      "time": 37.5,
+      "values": {
+        "A": 0
+      }
+    },
+    {
+      "time": 40,
+      "values": {
+        "D": 0,
+        "B": 0.35
+      }
+    },
+    {
+      "time": 40.5,
+      "values": {
+        "C": 0
+      }
+    },
+    {
+      "time": 43,
+      "values": {
+        "D": 0.35,
+        "A": 0
+      }
+    },
+    {
+      "time": 43.5,
+      "values": {
+        "B": 0
+      }
+    },
+    {
+      "time": 45,
+      "values": {
+        "C": 0,
+        "A": 0.35
+      }
+    },
+    {
+      "time": 46.5,
+      "values": {
+        "D": 0
+      }
+    },
+    {
+      "time": 47,
+      "values": {
+        "C": 0.35,
+        "B": 0
+      }
+    },
+    {
+      "time": 47.5,
+      "values": {
+        "A": 0
+      }
+    },
+    {
+      "time": 49,
+      "values": {
+        "D": 0,
+        "B": 0.35
+      }
+    },
+    {
+      "time": 49.5,
+      "values": {
+        "C": 0
+      }
+    },
+    {
+      "time": 51,
+      "values": {
+        "D": 0.35
+      }
+    },
+    {
+      "time": 51.5,
+      "values": {
+        "B": 0
+      }
+    },
+    {
+      "time": 53,
+      "values": {
+        "AB": 0,
+        "CD": 0
+      }
+    },
+    {
+      "time": 53.5,
+      "values": {
+        "D": 0
+      }
+    },
+    {
+      "time": 56.5,
+      "values": {
+        "AB": 0.6,
+        "CD": 0.6
+      }
+    },
+    {
+      "time": 58,
+      "values": {
+        "AB": 0.55,
+        "CD": 0.55,
+        "AC": 0,
+        "BD": 0
+      }
+    },
+    {
+      "time": 61,
+      "values": {
+        "AB": 0,
+        "CD": 0
+      }
+    },
+    {
+      "time": 61.5,
+      "values": {
+        "AC": 0.6,
+        "BD": 0.6
+      }
+    },
+    {
+      "time": 62.5,
+      "values": {
+        "AD": 0,
+        "BC": 0
+      }
+    },
+    {
+      "time": 63,
+      "values": {
+        "AC": 0.55,
+        "BD": 0.55
+      }
+    },
+    {
+      "time": 66,
+      "values": {
+        "AC": 0,
+        "BD": 0,
+        "AD": 0.6,
+        "BC": 0.6
+      }
+    },
+    {
+      "time": 67.5,
+      "values": {
+        "AD": 0.55,
+        "BC": 0.55
+      }
+    },
+    {
+      "time": 68,
+      "values": {
+        "size": 0
+      }
+    },
+    {
+      "time": 70.5,
+      "values": {
+        "AD": 0,
+        "BC": 0
+      }
+    },
+    {
+      "time": 73.5,
+      "values": {
+        "size": 0.45
+      }
+    },
+    {
+      "time": 76,
+      "values": {
+        "size": 0.4
+      }
+    },
+    {
+      "time": 80,
+      "values": {
+        "size": 0.2,
+        "A": 0,
+        "B": 0,
+        "C": 0,
+        "D": 0,
+        "AB": 0,
+        "AC": 0,
+        "AD": 0,
+        "BC": 0,
+        "BD": 0,
+        "CD": 0
+      }
+    }
+  ],
+  "loopStart": 16,
+  "loop": true,
+  "speed": 1
+}

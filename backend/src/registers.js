@@ -5,6 +5,7 @@
 export const REG = {
   // --- basic parameters ---
   PULSES_PER_REV: 0x0001, // Pr0.00  P/R (default 10000)
+  MAX_FOLLOWING_ERROR: 0x000b, // Pr0.05  following-error alarm limit, encoder counts (65536/turn; factory 4000)
   FORCE_ENABLE: 0x000f, //   Pr0.07  1 = enable regardless of DI1
   BUS_VOLTAGE: 0x0177, //    Pr4.27  unit 0.1 V
   PEAK_CURRENT: 0x0191, //   Pr5.00  unit 0.1 A
@@ -24,6 +25,9 @@ export const REG = {
   PR_GLOBAL: 0x6000, //  Pr8.00  bit0 CTRG edge, bit1 soft limit, bit2 home on power-up
   PR_CONTROL: 0x6002, // Pr8.02  trigger register
   PR0_BASE: 0x6200, //   Pr9.00..Pr9.07 (8 consecutive registers for path 0)
+  // Pr9.14 = path 1's pause time, a path we never run. The server writes its own number here (in RAM, never
+  // saved): after a power cycle the drive reloads the saved value, so a different number means "restarted".
+  SESSION_MARKER: 0x620e,
 };
 
 export const CTRL = {

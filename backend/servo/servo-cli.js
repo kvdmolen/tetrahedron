@@ -7,7 +7,13 @@
 //        real torque mode: pulls with 300 per mille (30 %) of rated torque, never faster than 0.5 turns/s.
 //        Negative --torque pulls the other way. Ctrl-C (or the end) sets torque 0 and disables the motor.
 //   node servo/servo-cli.js findparams              READ-ONLY: look for the P-parameters (gains, error limit) over Modbus
-//   node servo/servo-cli.js param <address> [value] read (or write) one register, e.g. 'param 0x0103'
+//   node servo/servo-cli.js params                  all known P-parameters with their values (RS232 tuning port)
+//   node servo/servo-cli.js param P01-03 [value]    read (or write) one parameter (RS232), value in the manual's units
+//   node servo/servo-cli.js param 0x6041            read (or write) one register by address
+//   node servo/servo-cli.js save                    try to store the parameters permanently (CiA402 0x1010 'save')
+//
+// Tuning commands (params, param P.., findparams) use the RS232 tuning port by default
+// (/dev/cu.usbserial-AC005EJ0, 57600 8E1); everything else uses the RS485 port. --port/--baud/--parity override.
 //   node servo/servo-cli.js scan [--from 0x0000] [--to 0xffff]
 //        READ-ONLY sweep of every register address (~20 min for all). Saves to servo-scan.jsonl and resumes
 //        where it stopped; prints readable addresses and looks for the P-parameters' factory defaults.
@@ -22,7 +28,8 @@ import { parseArgs } from 'node:util';
 import { appendFileSync, existsSync, readFileSync } from 'node:fs';
 import { ModbusRtuBus } from '../src/ModbusRtuBus.js';
 import { DEFAULT_RS485_PORT, DEFAULT_BAUD_RATE } from '../src/serialPorts.js';
-import { IHSV, IHSV_MODE, IHSV_CONTROL, IHSV_RATED_TORQUE_NM, describeStatusWord } from './ihsvRegisters.js';
+import { IHSV, IHSV_MODE, IHSV_CONTROL, IHSV_RATED_TORQUE_NM, describeStatusWord, describeAlarm } from './ihsvRegisters.js';
+import { IHSV_PARAMETERS, RS232_TUNING_PORT, RS232_BAUD_RATE, RS232_PARITY, parameterAddress, findParameter, fromRaw, toRaw } from './ihsvParameters.js';
 
 // allow negative numbers: '--torque -300' -> '--torque=-300'
 const cliArgs = [];
@@ -35,8 +42,8 @@ const { values: options, positionals: [command, argument, argument2] } = parseAr
   args: cliArgs,
   allowPositionals: true,
   options: {
-    port: { type: 'string', default: DEFAULT_RS485_PORT },
-    baud: { type: 'string', default: String(DEFAULT_BAUD_RATE) },
+    port: { type: 'string' }, //                         default: RS485 port, or the RS232 port for tuning commands
+    baud: { type: 'string' },
     id: { type: 'string', default: '1' },
     torque: { type: 'string', default: '200' }, //       per mille of rated torque
     speedlimit: { type: 'string', default: '0.5' }, //   turns per second
@@ -48,9 +55,10 @@ const { values: options, positionals: [command, argument, argument2] } = parseAr
     lookahead: { type: 'string', default: '3' }, //      ticks
     countsperturn: { type: 'string', default: '4000' }, // target-position units per turn (P03-09, default 4000)
     acc: { type: 'string', default: '200' }, //          0.1 turns/s^2 (200 = 20 turns/s^2)
-    parity: { type: 'string', default: 'none' }, //     'even' for the RS232 tuning port (57600 8E1)
+    parity: { type: 'string' }, //                      'even' for the RS232 tuning port (57600 8E1)
     oneframe: { type: 'boolean', default: false }, //   experiment: one message per update instead of two
     paced: { type: 'boolean', default: false }, //      don't wait for replies (see src/ModbusRtuBus.js)
+    release: { type: 'boolean', default: false }, //    sine: disable the motor (free shaft) at the end
     from: { type: 'string', default: '0x0000' },
     to: { type: 'string', default: '0xffff' },
     out: { type: 'string' }, //                          default servo-scan.jsonl (servo-scan-32bit.jsonl with --width 2)
@@ -58,6 +66,11 @@ const { values: options, positionals: [command, argument, argument2] } = parseAr
   },
 });
 const servoId = Number(options.id);
+// P-parameters are only reachable over the RS232 tuning port; motion runs over RS485
+const isTuningCommand = ['params', 'findparams'].includes(command) || (command === 'param' && /^P\d/i.test(argument ?? ''));
+options.port ??= isTuningCommand ? RS232_TUNING_PORT : DEFAULT_RS485_PORT;
+options.baud ??= String(isTuningCommand ? RS232_BAUD_RATE : DEFAULT_BAUD_RATE);
+options.parity ??= isTuningCommand ? RS232_PARITY : 'none';
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 const toInt32 = ([high, low]) => ((high << 16) | low) | 0;
 const toInt16 = (value) => (value << 16) >> 16;
@@ -81,6 +94,7 @@ async function readState(bus) {
     speedRpm: await read32(IHSV.ACTUAL_SPEED),
     torquePerMille: toInt16(await read16(IHSV.ACTUAL_TORQUE)),
     errorCode: await read16(IHSV.ERROR_CODE),
+    alarmCode: await read16(IHSV.ALARM_CODE),
   };
 }
 
@@ -89,7 +103,8 @@ async function info() {
   try {
     const state = await readState(bus);
     console.log(`Servo ID ${servoId} on ${options.port} @ ${options.baud}`);
-    console.log(`  status 0x${state.status.toString(16).padStart(4, '0')} (${describeStatusWord(state.status)}), mode ${state.mode}, error code ${state.errorCode}`);
+    console.log(`  status 0x${state.status.toString(16).padStart(4, '0')} (${describeStatusWord(state.status)}), mode ${state.mode}`);
+    console.log(`  alarm: ${describeAlarm(state.alarmCode)}   (internal error register 0x1001 = ${state.errorCode})`);
     console.log(`  position ${state.position}, speed ${state.speedRpm} rpm, torque ${state.torquePerMille} per mille of rated`);
     for (const [name, address] of [['watchdog time', IHSV.WATCHDOG_TIME], ['watchdog factor', IHSV.WATCHDOG_FACTOR], ['32-bit format', IHSV.FORMAT_32BIT]]) {
       console.log(`  ${name}: ${(await bus.readHolding(servoId, address, 1))[0]}`);
@@ -228,15 +243,81 @@ async function findParams() {
 }
 
 async function param() {
-  const address = Number(argument);
-  if (!Number.isInteger(address)) throw new Error('Usage: param <address> [value]   e.g. param 0x0103   or   param 0x0103 20');
+  if (argument === undefined) throw new Error('Usage: param P01-03 [value]   or   param 0x6041 [value]');
+  const isParameterCode = /^P\d/i.test(argument);
+  const parameter = isParameterCode ? findParameter(argument) : null;
+  const address = isParameterCode ? parameterAddress(argument) : Number(argument);
+  if (!Number.isInteger(address)) throw new Error(`Not an address: ${argument}`);
+  const describe = (raw) => (isParameterCode ? `${fromRaw(parameter, raw)}${parameter?.unit ? ' ' + parameter.unit : ''} (raw ${raw})` : String(raw));
   const bus = await openBus();
   try {
+    const before = (await bus.readHolding(servoId, address, 1))[0];
+    if (isParameterCode && before === address) throw new Error(`${argument} answers with its own address: not a parameter on this drive`);
+    console.log(`${argument}${parameter ? ' ' + parameter.name : ''} = ${describe(before)}`);
     if (argument2 !== undefined) {
-      await bus.writeSingle(servoId, address, Number(argument2) & 0xffff);
-      console.log(`wrote ${hex(address)} = ${Number(argument2)}`);
+      const raw = isParameterCode ? toRaw(parameter, Number(argument2)) : Number(argument2) & 0xffff;
+      await bus.writeSingle(servoId, address, raw);
+      const after = (await bus.readHolding(servoId, address, 1))[0];
+      console.log(`now ${describe(after)}${after === raw ? '' : '   (DIFFERENT from what was written!)'}`);
+      if (parameter?.applies === 'restart') console.log('This parameter takes effect after a power cycle.');
+      console.log('Check whether it is kept: power-cycle the servo and read it again.');
     }
-    console.log(`${hex(address)} = ${(await bus.readHolding(servoId, address, 1))[0]}`);
+  } finally {
+    await bus.close();
+  }
+}
+
+/**
+ * Store the current parameters permanently: CiA402 object 0x1010 ("store parameters"), writing the
+ * signature "save" (0x65766173). The manual documents it for CANopen; over Modbus it's undocumented,
+ * so try it on both ports and report what the drive says. Then power-cycle and check with 'params'.
+ */
+async function save() {
+  const SAVE_SIGNATURE = [0x6576, 0x6173]; // 'e' 'v' 'a' 's', high word first
+  const ports = options.port
+    ? [{ path: options.port, baudRate: Number(options.baud), parity: options.parity }]
+    : [
+        { path: RS232_TUNING_PORT, baudRate: RS232_BAUD_RATE, parity: RS232_PARITY, label: 'RS232 tuning port' },
+        { path: DEFAULT_RS485_PORT, baudRate: DEFAULT_BAUD_RATE, parity: 'none', label: 'RS485 port' },
+      ];
+  for (const port of ports) {
+    const bus = new ModbusRtuBus({ path: port.path, baudRate: port.baudRate, parity: port.parity, retries: 0, timeoutMs: 500 });
+    try {
+      await bus.open();
+      await bus.writeMultiple(servoId, 0x1010, SAVE_SIGNATURE);
+      console.log(`${port.label ?? port.path}: drive ACCEPTED the save command`);
+    } catch (error) {
+      console.log(`${port.label ?? port.path}: ${error.message}`);
+    } finally {
+      await bus.close().catch(() => {});
+    }
+  }
+  console.log('Now power-cycle the servo and run: node servo/servo-cli.js params');
+}
+
+/** All known P-parameters, with the manual's default next to the value read. */
+async function params() {
+  const bus = await openBus();
+  try {
+    console.log(`Servo ID ${servoId} on ${options.port} @ ${options.baud} ${options.parity} parity\n`);
+    console.log('  code    value          manual default   name');
+    for (const parameter of IHSV_PARAMETERS) {
+      const address = parameterAddress(parameter.code);
+      let text;
+      try {
+        const raw = (await bus.readHolding(servoId, address, 1))[0];
+        if (raw === address) text = '(not present)'.padEnd(15);
+        else {
+          const value = fromRaw(parameter, raw);
+          const differs = parameter.default !== undefined && value !== parameter.default;
+          text = `${String(value).padEnd(8)}${parameter.scale ? `raw ${raw}`.padEnd(7) : ''.padEnd(7)}`.padEnd(15) + (differs ? '*' : ' ');
+        }
+      } catch (error) {
+        text = `(${error.message})`;
+      }
+      console.log(`  ${parameter.code}  ${text.padEnd(16)} ${String(parameter.default ?? '-').padEnd(15)} ${parameter.name}${parameter.unit ? ' [' + parameter.unit + ']' : ''}`);
+    }
+    console.log('\n* = differs from the manual. Values with a decimal in the manual are assumed stored x10 / x100 (check the raw column).');
   } finally {
     await bus.close();
   }
@@ -260,6 +341,45 @@ async function watch() {
 }
 
 /**
+ * Enable the drive in position mode without a jump, and return the current position (the sine's zero).
+ * The drive remembers its last target position; enabling (or switching mode) with a stale target makes it
+ * jump there. So: set mode + target = where the shaft is NOW, then enable. Logs how far the shaft moved in
+ * every step, to show where a jolt comes from.
+ */
+async function enableInPositionModeWithoutJump(bus) {
+  const write16 = (address, value) => bus.writeSingle(servoId, address, value & 0xffff);
+  const readPosition = async () => toInt32(await bus.readHolding(servoId, IHSV.ACTUAL_POSITION, 2));
+  const CONTROL_ENABLE_IMMEDIATE = IHSV_CONTROL.ENABLE | 0x0020;
+  const startPosition = await readPosition();
+  const step = async (label, action) => {
+    await action();
+    await sleep(300);
+    const position = await readPosition();
+    console.log(`  ${label.padEnd(44)} shaft moved ${String(position - startPosition).padStart(6)} counts`);
+  };
+  const status = (await bus.readHolding(servoId, IHSV.STATUS_WORD, 1))[0];
+  const isEnabled = (status & 0x006f) === 0x0027; // CiA402 "operation enabled"
+  console.log(`Start: status 0x${status.toString(16)} (${describeStatusWord(status)}), position ${startPosition}`);
+  if (status & 0x0008) await step('fault reset', async () => { await write16(IHSV.CONTROL_WORD, 0); await write16(IHSV.CONTROL_WORD, IHSV_CONTROL.FAULT_RESET); });
+  await step('position mode, target = current position', async () => {
+    await write16(IHSV.OPERATION_MODE, IHSV_MODE.POSITION);
+    await bus.writeMultiple(servoId, IHSV.TARGET_SPEED, split32(5)); // 0.5 turns/s, only matters if it does move
+    await bus.writeMultiple(servoId, IHSV.TARGET_POSITION, split32(startPosition));
+  });
+  if (!isEnabled) {
+    await step('switch on (0x01, 0x03)', async () => { await write16(IHSV.CONTROL_WORD, IHSV_CONTROL.INITIALISE); await write16(IHSV.CONTROL_WORD, IHSV_CONTROL.SWITCH_ON); });
+    await step('enable (0x2F)', () => write16(IHSV.CONTROL_WORD, CONTROL_ENABLE_IMMEDIATE));
+  } else {
+    console.log('  (already enabled: not switching off and on)');
+  }
+  await step('take target = current position (bit4 edge)', async () => {
+    await write16(IHSV.CONTROL_WORD, CONTROL_ENABLE_IMMEDIATE);
+    await write16(IHSV.CONTROL_WORD, CONTROL_ENABLE_IMMEDIATE | 0x0010);
+  });
+  return startPosition;
+}
+
+/**
  * Position streaming test, same idea as bin/cli.js sine: every tick, aim `lookahead` ticks ahead at the
  * average speed over that window. Per tick and motor: ONE 9-register frame (control word with bit4 low,
  * mode, speed, acc, dec, quick-stop dec, target), then ONE control-word write with bit4 high = take this
@@ -280,8 +400,12 @@ async function sine() {
     if (stopped) return;
     stopped = true;
     await sleep(500); // let the last move finish
-    await write16(IHSV.CONTROL_WORD, IHSV_CONTROL.DISABLE).catch(() => {});
-    console.log('Motor disabled.', bus.stats);
+    if (options.release) {
+      await write16(IHSV.CONTROL_WORD, IHSV_CONTROL.DISABLE).catch(() => {});
+      console.log('Motor disabled (shaft free).', bus.stats);
+    } else {
+      console.log('Motor stays enabled and holds its position (--release to free the shaft).', bus.stats);
+    }
     await bus.close();
   };
   process.once('SIGINT', async () => {
@@ -290,11 +414,7 @@ async function sine() {
     process.exit(0);
   });
 
-  await write16(IHSV.CONTROL_WORD, 0);
-  await write16(IHSV.CONTROL_WORD, IHSV_CONTROL.FAULT_RESET);
-  for (const controlWord of [IHSV_CONTROL.INITIALISE, IHSV_CONTROL.SWITCH_ON, IHSV_CONTROL.ENABLE]) await write16(IHSV.CONTROL_WORD, controlWord);
-  await write16(IHSV.OPERATION_MODE, IHSV_MODE.POSITION);
-  const startPosition = (await readState(bus)).position;
+  const startPosition = await enableInPositionModeWithoutJump(bus);
   console.log(`Sine ±${amplitudeTurns} turns at ${frequencyHz} Hz, ${rateHz} updates/s, look-ahead ${lookaheadTicks} ticks, ${countsPerTurn} counts/turn. No rope, shaft free to turn.`);
   console.log('   time   target   actual      lag  speed-cmd(0.1rps)  torque(‰)  bus-ms  status');
 
@@ -321,7 +441,7 @@ async function sine() {
         const actualTurns = (state.position - startPosition) / countsPerTurn;
         console.log(`  ${t.toFixed(1).padStart(5)}s ${nowTurns.toFixed(3).padStart(7)} ${actualTurns.toFixed(3).padStart(8)} ${(nowTurns - actualTurns).toFixed(3).padStart(8)} ${String(speedTenthTurnsPerSecond).padStart(18)} ${String(state.torquePerMille).padStart(10)} ${busMs.toFixed(0).padStart(7)}  ${describeStatusWord(state.status)}`);
         if (state.status & 0x0008) {
-          console.log('  FAULT: stopping.');
+          console.log(`  FAULT: ${describeAlarm(state.alarmCode)}. Stopping.`);
           break;
         }
       }
@@ -424,9 +544,9 @@ function summarizeScan(done) {
   console.log(`Paste this summary (and ${options.out} if you like) back.`);
 }
 
-const commands = { info, probe, torquetest: torqueTest, findparams: findParams, param, watch, sine, scan };
+const commands = { info, probe, torquetest: torqueTest, findparams: findParams, param, params, save, watch, sine, scan };
 if (!commands[command]) {
-  console.log('Usage: node servo/servo-cli.js info | probe | torquetest | findparams | param <addr> [value] | watch | sine   (see the top of this file)');
+  console.log('Usage: node servo/servo-cli.js info | probe | torquetest | params | param P01-03 [value] | save | findparams | scan | watch | sine   (see the top of this file)');
 } else {
   commands[command]().catch((error) => {
     console.error('Error:', error.message);

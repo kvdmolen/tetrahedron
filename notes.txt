@@ -1,0 +1,52 @@
+
+🛠️ Framing Your "Prototype" Status for Selection
+
+When applying to these tech-art hubs with a working prototype, turn your 80cm footprint into a selling point rather than a limitation:
+• Pitch it as a "Self-Contained Scaled Model": Tech-art curators often prefer scale models because they easily run on a standard 240V/10A domestic breaker. Frame the sculpture as a fully realized, standalone exhibition piece that double-functions as a spatial testbed.
+• Highlight the Math/Algorithm: Because your work is geometric, don't just talk about the hardware. Explicitly name the logic driving the 16 motors in your statement (e.g., "The motor matrix executes sinusoidal waves," or "The geometry responds to an algorithmic loop"). Tech-art panels often consist of creative coders who score entries based on behavioral complexity.
+• Leverage the Current Open Cycle: If you want to jump on a premier North American tech-art call right away, CURRENTS New Media 2027 is accepting international submissions until December 8, 2026. They explicitly request "Robotics/Kinetic/Electro-Mechanical Objects" and frequently provide equipment matching if your tech rider is clearly detailed.
+
+
+🎬 How to Format Your Posts for Building Decorators
+
+To attract the people who commission large-scale architectural works, format your content with intention:
+1. Focus on the Fluidity of Motion: Post high-framerate, clean videos of the 16 motors moving in perfect geometric sync. Use a clean background (avoid messy studio clutter) so the geometric silhouette stands out. Architects value clean lines.
+2. Always State the Scale Intent: Never just say "Here is my new kinetic sculpture." Caption it as: "Working 80x80cm prototype testing the 16-motor array logic for a future 10-meter suspended installation."
+3. Show a 3D Render Mockup: Pair your real-life video of the prototype with a digital render slide showing the sculpture digitally photoshopped into a massive, minimalist hotel lobby or glass atrium. This instantly bridges the gap for corporate buyers who lack the imagination to visualize how a small prototype scales up.
+
+#kineticart, #computationaldesign, or #parametricarchitecture
+
+
+🏢 Category 1: The Architectural & Corporate Commission Crowd
+
+These tags are heavily monitored by corporate art consultancies, interior design firms, and architectural developers looking for centerpiece lobby art.
+• #architecturalart (High traffic among spatial designers)
+• #publicartcommission (The official term for large-scale building art)
+• #lobbyart / #corporateart (Directly targets building decorators)
+• #spatialdesign / #experientialdesign (Used by firms designing grand entrances)
+• #site-specificart (Signals that your work can scale to fit a building's architecture)
+• #suspendedinstallation (Crucial since your final vision involves ropes and hanging elements)
+
+📐 Category 2: Parametric & Geometric Design
+
+Architects love geometric harmony. These hashtags plug you directly into the contemporary architecture and structural engineering aesthetic.
+• #parametricarchitecture (Massive, elite design community that relies on geometry)
+• #computationaldesign (Attracts professionals who appreciate code-driven forms)
+• #generativedesign (Perfect for mathematically aligned arrays)
+• #geometricart / #mathart (Filters out found-object kinetic work)
+• #kineticarchitecture (The exact term for moving structural building elements)
+
+⚙️ Category 3: Elite Tech-Art & Robotics
+
+These ensure that curators from Ars Electronica, ZKM, and tech-forward festivals can easily discover your prototype.
+• #kineticart (The broad baseline, but paired with the others below to avoid "whimsical" kinetics)
+• #mediaart / #newmediaart (The institutional standard terms used by curators)
+• #creativecoding (Signals that your 16 motors move via sophisticated algorithmic logic)
+• #roboticart (Highly precise; highlights your multi-motor matrix)
+• #machineaesthetic (Attracts fans of clean, exposed hardware and mechanisms)
+
+
+[Name of the Work] — 16-Channel Kinetic Prototype.
+Testing the algorithmic choreography and geometric alignment on this 80x80x80cm working prototype. This system is a fully functional proof-of-concept, engineered to scale as a monumental, multi-meter installation suspended in architectural spaces, atriums, and public lobbies.
+Driven by a 16-motor array with continuous logic, designed for seamless integration into modern spatial architectures.
+[Insert your compiled hashtags here]
